@@ -31,6 +31,14 @@ LLM_API_KEY=
 LLM_MODEL=
 ```
 
+大模型接口需要使用 OpenAI-compatible 的 Chat Completions 协议。`LLM_API_URL` 请填写完整接口地址，不是只填网关域名；常见格式是：
+
+```text
+https://你的模型网关/v1/chat/completions
+```
+
+如果你的网关把版本号放在其他路径里，也可以是 `https://你的模型网关/chat/completions`。关键是该地址必须能接收 `model`、`messages`，并返回 `choices[0].message.content`。
+
 `.env` 已加入 `.gitignore`，不要提交真实密钥。
 
 ## 测试 API 连通性
