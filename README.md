@@ -16,7 +16,7 @@
 
 ```bat
 cd /d D:\yuqing
-D:\Anaconda\python.exe -m pip install -r requirement.txt
+python -m pip install -r requirement.txt
 ```
 
 ## 配置
@@ -38,13 +38,13 @@ LLM_MODEL=
 测试舆情 API：
 
 ```bat
-D:\Anaconda\python.exe D:\yuqing\scripts\test_yuqing_api.py
+python scripts\test_yuqing_api.py
 ```
 
 测试大模型 API：
 
 ```bat
-D:\Anaconda\python.exe D:\yuqing\scripts\test_llm_api.py
+python scripts\test_llm_api.py
 ```
 
 测试通过后，脚本会询问是否把本次参数写入 `.env`。
@@ -54,27 +54,27 @@ D:\Anaconda\python.exe D:\yuqing\scripts\test_llm_api.py
 只使用本地规则：
 
 ```bat
-D:\Anaconda\python.exe D:\yuqing\suyiyu_prepaid_risk.py ^
+python suyiyu_prepaid_risk.py ^
   --analysis-mode cpu ^
-  --output D:\yuqing\outputs\预充值卡商户跑路风险预警输出.xlsx
+  --output outputs\预充值卡商户跑路风险预警输出.xlsx
 ```
 
 使用大模型辅助复核和智能去重：
 
 ```bat
-D:\Anaconda\python.exe D:\yuqing\suyiyu_prepaid_risk.py ^
+python suyiyu_prepaid_risk.py ^
   --analysis-mode gpu ^
   --date-type 30 ^
-  --output D:\yuqing\outputs\预充值卡商户跑路风险预警输出.xlsx
+  --output outputs\预充值卡商户跑路风险预警输出.xlsx
 ```
 
 读取本地文件离线处理：
 
 ```bat
-D:\Anaconda\python.exe D:\yuqing\suyiyu_prepaid_risk.py ^
-  --input D:\yuqing\input.xlsx ^
+python suyiyu_prepaid_risk.py ^
+  --input input.xlsx ^
   --analysis-mode cpu ^
-  --output D:\yuqing\outputs\offline_output.xlsx
+  --output outputs\offline_output.xlsx
 ```
 
 ## 项目结构
