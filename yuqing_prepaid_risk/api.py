@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from .config import THEME_API_URL
+from .io_utils import normalize_row
 from .utils import log
 
 def sign_authorization(app_key: str, secure_key: str, request_time: Optional[int] = None) -> str:

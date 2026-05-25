@@ -57,6 +57,18 @@ python scripts\test_llm_api.py
 
 测试通过后，脚本会询问是否把本次参数写入 `.env`。
 
+## 导出原始舆情
+
+如需直接获取舆情 API 返回的完整原始结果，不做地域过滤、风险过滤、去重和大模型复核，可以运行：
+
+```bat
+python scripts\export_yuqing_api.py ^
+  --date-type 30 ^
+  --output outputs\舆情API原始结果.xlsx
+```
+
+该脚本会按页拉取 API 数据，并把返回记录中的所有字段写入 Excel。
+
 ## 运行
 
 只使用本地规则：
@@ -103,6 +115,7 @@ yuqing_prepaid_risk/
 scripts/
   test_yuqing_api.py
   test_llm_api.py
+  export_yuqing_api.py
 suyiyu_prepaid_risk.py # 兼容入口
 ```
 
