@@ -80,6 +80,8 @@ def fetch_pages(url: str, base_params: Dict[str, Any], args: argparse.Namespace)
         for item in data_list:
             rows.append(normalize_row(item))
         total_num = int(data.get("total_num") or 0)
+        total_pages = (total_num + args.page_count - 1) // args.page_count if args.page_count else 0
+        log(f"已拉取第 {page}/{total_pages or '?'} 页: 本页={len(data_list)}, 累计={len(rows)}, total={total_num}")
         if not data_list or len(rows) >= total_num:
             break
         time.sleep(args.sleep)

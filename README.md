@@ -71,6 +71,27 @@ python scripts\export_yuqing_api.py ^
 
 注意：舆情 API 当前限制单页数量，默认 `--page-count 20`。脚本会自动翻页直到拉完全部数据，不需要手动逐页运行。
 
+## Web 控制台
+
+也可以启动浏览器页面配置参数、运行任务并查看实时日志：
+
+```bat
+python scripts\web_ui.py
+```
+
+启动后打开：
+
+```text
+http://127.0.0.1:8765
+```
+
+页面支持两类任务：
+
+- 风险筛选输出：等价于运行 `suyiyu_prepaid_risk.py`，支持 `cpu/gpu`、时间范围、输出路径、模型参数、去重参数等配置。
+- 原始舆情导出：等价于运行 `scripts\export_yuqing_api.py`，只拉取 API 原始结果并写入 Excel。
+
+页面会动态显示每个参数的含义，并实时展示脚本输出日志。
+
 ## 运行
 
 只使用本地规则：
@@ -118,6 +139,7 @@ scripts/
   test_yuqing_api.py
   test_llm_api.py
   export_yuqing_api.py
+  web_ui.py
 suyiyu_prepaid_risk.py # 兼容入口
 ```
 
