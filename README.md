@@ -69,6 +69,8 @@ python scripts\export_yuqing_api.py ^
 
 该脚本会按页拉取 API 数据，并把返回记录中的所有字段写入 Excel。
 
+注意：舆情 API 当前限制单页数量，默认 `--page-count 20`。脚本会自动翻页直到拉完全部数据，不需要手动逐页运行。
+
 ## 运行
 
 只使用本地规则：

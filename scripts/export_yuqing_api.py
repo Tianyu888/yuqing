@@ -122,7 +122,8 @@ def fetch_raw_rows(args: argparse.Namespace) -> List[Dict[str, Any]]:
         data_list = data.get("data_list") or []
         rows.extend(item for item in data_list if isinstance(item, dict))
         total_num = int(data.get("total_num") or 0)
-        log(f"已拉取第 {page} 页: 本页={len(data_list)}, 累计={len(rows)}, total={total_num}")
+        total_pages = (total_num + args.page_count - 1) // args.page_count if args.page_count else 0
+        log(f"已拉取第 {page}/{total_pages or '?'} 页: 本页={len(data_list)}, 累计={len(rows)}, total={total_num}")
         if not data_list or len(rows) >= total_num:
             break
         time.sleep(args.sleep)
