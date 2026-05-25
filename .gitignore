@@ -1,0 +1,22 @@
+.env
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local outputs and source data
+outputs/
+logs/
+tmp_extract/
+*.xlsx
+~$*.xlsx
+*.pdf
+*.doc
+*.docx
+
+# Local agent/editor state
+.claude/
+.codex/
+.agents/
