@@ -92,6 +92,52 @@ http://127.0.0.1:8765
 
 页面会动态显示每个参数的含义，并实时展示脚本输出日志。
 
+## 外部服务调用 API
+
+命令行脚本现在都复用 `yuqing_prepaid_risk.service` 服务层，外部 Python 服务可以直接 import 调用，不需要再用 subprocess 拼命令。
+
+风险筛选，等价于 `suyiyu_prepaid_risk.py`：
+
+```python
+from yuqing_prepaid_risk.service import RiskAnalysisOptions, run_risk_analysis
+
+result = run_risk_analysis(
+    RiskAnalysisOptions(
+        analysis_mode="gpu",
+        date_type=30,
+        output="outputs/预充值卡商户跑路风险预警输出.xlsx",
+    ),
+    write_output=True,
+    include_items=False,
+)
+print(result["stats"])
+```
+
+导出原始舆情，等价于 `scripts\export_yuqing_api.py`：
+
+```python
+from yuqing_prepaid_risk.service import RawExportOptions, export_raw_yuqing
+
+result = export_raw_yuqing(
+    RawExportOptions(
+        date_type=30,
+        output="outputs/舆情API原始结果.xlsx",
+    )
+)
+print(result["row_count"])
+```
+
+连通性测试，等价于 `scripts\test_yuqing_api.py` 和 `scripts\test_llm_api.py`：
+
+```python
+from yuqing_prepaid_risk.service import test_llm_api, test_yuqing_api
+
+yuqing_result = test_yuqing_api()
+llm_result = test_llm_api()
+```
+
+这些 API 默认读取 `.env`；也可以在 `RiskAnalysisOptions`、`RawExportOptions`、`YuqingApiTestOptions`、`LlmApiTestOptions` 里显式传入 key、模型地址、分页参数等。`run_risk_analysis(..., include_items=True)` 会返回处理后的明细列表；只想让服务后台生成 Excel 时建议设为 `False`，减少内存占用。
+
 ## 运行
 
 只使用本地规则：
@@ -134,6 +180,7 @@ yuqing_prepaid_risk/
   models.py       # 数据结构
   pipeline.py     # 主处理流程
   rules.py        # 地域过滤、风险分类、摘要提取
+  service.py      # 外部服务调用 API
   utils.py        # 通用文本工具
 scripts/
   test_yuqing_api.py

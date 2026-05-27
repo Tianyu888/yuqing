@@ -5,12 +5,9 @@ import os
 from pathlib import Path
 from typing import Optional, Sequence
 
-from .api import fetch_yuqing
 from .config import APP_KEY, DEFAULT_LLM_API_KEY, DEFAULT_LLM_API_URL, DEFAULT_LLM_MODEL, DEFAULT_THEME_NAME, SECURE_KEY
 from .env import load_env_file
-from .io_utils import read_local, write_xlsx
-from .pipeline import process_rows
-from .utils import log
+from .service import RiskAnalysisOptions, run_risk_analysis
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -74,27 +71,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
-    districts = [x.strip() for x in args.districts.split(",") if x.strip()]
-    if args.input:
-        rows = read_local(args.input)
-        log(f"本地舆情读取完成: input={args.input}, rows={len(rows)}")
-    else:
-        rows = fetch_yuqing(args)
-
-    items, stats = process_rows(
-        rows,
-        args.target_city,
-        args.target_province,
-        districts,
-        args.fuzzy_threshold,
-        args.include_suspected,
-        args,
-    )
-    write_xlsx(items, args.output, args.include_filtered)
+    options = RiskAnalysisOptions(**vars(args))
+    result = run_risk_analysis(options, write_output=True, include_items=False)
+    stats = result["stats"]
 
     print(f"输入总量: {stats.get('输入总量', 0)}")
     print(f"输出总量: {stats.get('输出总量', 0)}")
     for key in sorted(k for k in stats if k not in {"输入总量", "输出总量"}):
         print(f"{key}: {stats[key]}")
-    print(f"输出文件: {args.output}")
+    print(f"输出文件: {result['output']}")
     return 0

@@ -10,9 +10,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from yuqing_prepaid_risk.api import post_api
 from yuqing_prepaid_risk.config import DEFAULT_THEME_NAME, THEME_API_URL
 from yuqing_prepaid_risk.env import load_env_file, update_env_file
+from yuqing_prepaid_risk.service import YuqingApiTestOptions, test_yuqing_api
 
 
 def prompt_value(label: str, current: str = "") -> str:
@@ -38,22 +38,23 @@ def main() -> int:
         print("缺少 SUYIYU_APP_KEY 或 SUYIYU_SECURE_KEY")
         return 2
 
-    params = {
-        "theme_name": args.theme_name,
-        "news_type": "all",
-        "attribute": "negative",
-        "date_type": 1,
-        "page": 1,
-        "page_count": 1,
-    }
     try:
-        payload = post_api(args.url, params, app_key, secure_key, args.timeout, args.payload_format)
+        result = test_yuqing_api(
+            YuqingApiTestOptions(
+                app_key=app_key,
+                secure_key=secure_key,
+                url=args.url,
+                theme_name=args.theme_name,
+                timeout=args.timeout,
+                payload_format=args.payload_format,
+            )
+        )
     except Exception as exc:
         print(f"舆情 API 测试失败: {exc}")
         return 1
 
     print("舆情 API 测试通过。")
-    print(f"返回字段: {', '.join(list(payload)[:10])}")
+    print(f"返回字段: {', '.join(result['fields'])}")
     answer = input("是否将本次 SUYIYU_APP_KEY/SUYIYU_SECURE_KEY 写入 .env？[y/N]: ").strip().lower()
     if answer in {"y", "yes", "是"}:
         update_env_file({"SUYIYU_APP_KEY": app_key, "SUYIYU_SECURE_KEY": secure_key})
