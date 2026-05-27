@@ -92,6 +92,73 @@ http://127.0.0.1:8765
 
 页面会动态显示每个参数的含义，并实时展示脚本输出日志。
 
+## HTTP API 服务
+
+如果要让其他系统通过 `http://ip:port/route` 调用，可以启动 HTTP API 服务：
+
+```bat
+python scripts\http_api.py --host 0.0.0.0 --port 8770
+```
+
+本机测试可以打开：
+
+```text
+http://127.0.0.1:8770/api/routes
+```
+
+主要路由：
+
+```text
+GET  /health
+GET  /api/routes
+POST /api/risk-analysis
+POST /api/raw-export
+POST /api/test-yuqing
+POST /api/test-llm
+POST /api/jobs/risk-analysis
+POST /api/jobs/raw-export
+GET  /api/jobs/{job_id}
+```
+
+风险筛选同步调用：
+
+```bat
+curl -X POST http://127.0.0.1:8770/api/risk-analysis ^
+  -H "Content-Type: application/json" ^
+  -d "{\"options\":{\"analysisMode\":\"gpu\",\"dateType\":30,\"output\":\"outputs\\预充值卡商户跑路风险预警输出.xlsx\"},\"write_output\":true,\"include_items\":false}"
+```
+
+完整 30 天任务可能耗时较长，更推荐异步调用：
+
+```bat
+curl -X POST http://127.0.0.1:8770/api/jobs/risk-analysis ^
+  -H "Content-Type: application/json" ^
+  -d "{\"options\":{\"analysisMode\":\"gpu\",\"dateType\":30,\"output\":\"outputs\\预充值卡商户跑路风险预警输出.xlsx\"},\"write_output\":true,\"include_items\":false}"
+```
+
+返回 `job_id` 后查询状态：
+
+```bat
+curl http://127.0.0.1:8770/api/jobs/你的job_id
+```
+
+导出原始舆情：
+
+```bat
+curl -X POST http://127.0.0.1:8770/api/raw-export ^
+  -H "Content-Type: application/json" ^
+  -d "{\"options\":{\"dateType\":30,\"output\":\"outputs\\舆情API原始结果.xlsx\"},\"write_output\":true,\"include_rows\":false}"
+```
+
+测试连通性：
+
+```bat
+curl -X POST http://127.0.0.1:8770/api/test-yuqing -H "Content-Type: application/json" -d "{}"
+curl -X POST http://127.0.0.1:8770/api/test-llm -H "Content-Type: application/json" -d "{}"
+```
+
+请求参数放在 `options` 里，支持脚本参数的 snake_case 写法，也支持常见 camelCase 写法，例如 `date_type`/`dateType`、`analysis_mode`/`analysisMode`。服务默认读取 `.env`。如果要简单保护接口，可以启动时加 `--token`，请求时带 `Authorization: Bearer <token>`。
+
 ## 外部服务调用 API
 
 命令行脚本现在都复用 `yuqing_prepaid_risk.service` 服务层，外部 Python 服务可以直接 import 调用，不需要再用 subprocess 拼命令。
@@ -186,6 +253,7 @@ scripts/
   test_yuqing_api.py
   test_llm_api.py
   export_yuqing_api.py
+  http_api.py
   web_ui.py
 suyiyu_prepaid_risk.py # 兼容入口
 ```
