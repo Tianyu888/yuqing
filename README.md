@@ -14,8 +14,8 @@
 
 ## 安装
 
-```bat
-cd /d D:\yuqing
+```bash
+cd /mnt/d/yuqing
 python -m pip install -r requirement.txt
 ```
 
@@ -47,14 +47,14 @@ https://你的模型网关/v1/chat/completions
 
 测试舆情 API：
 
-```bat
-python scripts\test_yuqing_api.py
+```bash
+python scripts/test_yuqing_api.py
 ```
 
 测试大模型 API：
 
-```bat
-python scripts\test_llm_api.py
+```bash
+python scripts/test_llm_api.py
 ```
 
 测试通过后，脚本会询问是否把本次参数写入 `.env`。
@@ -63,10 +63,10 @@ python scripts\test_llm_api.py
 
 如需直接获取舆情 API 返回的完整原始结果，不做地域过滤、风险过滤、去重和大模型复核，可以运行：
 
-```bat
-python scripts\export_yuqing_api.py ^
-  --date-type 30 ^
-  --output outputs\舆情API原始结果.xlsx
+```bash
+python scripts/export_yuqing_api.py \
+  --date-type 30 \
+  --output outputs/舆情API原始结果.xlsx
 ```
 
 该脚本会按页拉取 API 数据，并把返回记录中的所有字段写入 Excel。
@@ -77,8 +77,8 @@ python scripts\export_yuqing_api.py ^
 
 也可以启动浏览器页面配置参数、运行任务并查看实时日志：
 
-```bat
-python scripts\web_ui.py
+```bash
+python scripts/web_ui.py
 ```
 
 启动后打开：
@@ -90,7 +90,7 @@ http://127.0.0.1:8765
 页面支持两类任务：
 
 - 风险筛选输出：等价于运行 `suyiyu_prepaid_risk.py`，支持 `cpu/gpu`、时间范围、输出路径、模型参数、去重参数等配置。
-- 原始舆情导出：等价于运行 `scripts\export_yuqing_api.py`，只拉取 API 原始结果并写入 Excel。
+- 原始舆情导出：等价于运行 `scripts/export_yuqing_api.py`，只拉取 API 原始结果并写入 Excel。
 
 页面会动态显示每个参数的含义，并实时展示脚本输出日志。
 
@@ -98,8 +98,8 @@ http://127.0.0.1:8765
 
 如果要让其他系统通过 `http://ip:port/route` 调用，可以启动 FastAPI HTTP API 服务：
 
-```bat
-python scripts\http_api.py --host 0.0.0.0 --port 8770
+```bash
+python scripts/http_api.py --host 0.0.0.0 --port 8770
 ```
 
 本机测试可以打开：
@@ -130,37 +130,37 @@ GET  /api/jobs/{job_id}
 
 风险筛选同步调用：
 
-```bat
-curl -X POST http://127.0.0.1:8770/api/risk-analysis ^
-  -H "Content-Type: application/json" ^
-  -d "{\"options\":{\"analysisMode\":\"gpu\",\"dateType\":30,\"output\":\"outputs\\预充值卡商户跑路风险预警输出.xlsx\"},\"write_output\":true,\"include_items\":false}"
+```bash
+curl -X POST http://127.0.0.1:8770/api/risk-analysis \
+  -H "Content-Type: application/json" \
+  -d '{"options":{"analysisMode":"gpu","dateType":30,"output":"outputs/预充值卡商户跑路风险预警输出.xlsx"},"write_output":true,"include_items":false}'
 ```
 
 完整 30 天任务可能耗时较长，更推荐异步调用：
 
-```bat
-curl -X POST http://127.0.0.1:8770/api/jobs/risk-analysis ^
-  -H "Content-Type: application/json" ^
-  -d "{\"options\":{\"analysisMode\":\"gpu\",\"dateType\":30,\"output\":\"outputs\\预充值卡商户跑路风险预警输出.xlsx\"},\"write_output\":true,\"include_items\":false}"
+```bash
+curl -X POST http://127.0.0.1:8770/api/jobs/risk-analysis \
+  -H "Content-Type: application/json" \
+  -d '{"options":{"analysisMode":"gpu","dateType":30,"output":"outputs/预充值卡商户跑路风险预警输出.xlsx"},"write_output":true,"include_items":false}'
 ```
 
 返回 `job_id` 后查询状态：
 
-```bat
+```bash
 curl http://127.0.0.1:8770/api/jobs/你的job_id
 ```
 
 导出原始舆情：
 
-```bat
-curl -X POST http://127.0.0.1:8770/api/raw-export ^
-  -H "Content-Type: application/json" ^
-  -d "{\"options\":{\"dateType\":30,\"output\":\"outputs\\舆情API原始结果.xlsx\"},\"write_output\":true,\"include_rows\":false}"
+```bash
+curl -X POST http://127.0.0.1:8770/api/raw-export \
+  -H "Content-Type: application/json" \
+  -d '{"options":{"dateType":30,"output":"outputs/舆情API原始结果.xlsx"},"write_output":true,"include_rows":false}'
 ```
 
 测试连通性：
 
-```bat
+```bash
 curl -X POST http://127.0.0.1:8770/api/test-yuqing -H "Content-Type: application/json" -d "{}"
 curl -X POST http://127.0.0.1:8770/api/test-llm -H "Content-Type: application/json" -d "{}"
 ```
@@ -188,7 +188,7 @@ result = run_risk_analysis(
 print(result["stats"])
 ```
 
-导出原始舆情，等价于 `scripts\export_yuqing_api.py`：
+导出原始舆情，等价于 `scripts/export_yuqing_api.py`：
 
 ```python
 from yuqing_prepaid_risk.service import RawExportOptions, export_raw_yuqing
@@ -202,7 +202,7 @@ result = export_raw_yuqing(
 print(result["row_count"])
 ```
 
-连通性测试，等价于 `scripts\test_yuqing_api.py` 和 `scripts\test_llm_api.py`：
+连通性测试，等价于 `scripts/test_yuqing_api.py` 和 `scripts/test_llm_api.py`：
 
 ```python
 from yuqing_prepaid_risk.service import test_llm_api, test_yuqing_api
@@ -217,28 +217,28 @@ llm_result = test_llm_api()
 
 只使用本地规则：
 
-```bat
-python suyiyu_prepaid_risk.py ^
-  --analysis-mode cpu ^
-  --output outputs\预充值卡商户跑路风险预警输出.xlsx
+```bash
+python suyiyu_prepaid_risk.py \
+  --analysis-mode cpu \
+  --output outputs/预充值卡商户跑路风险预警输出.xlsx
 ```
 
 使用大模型辅助复核和智能去重：
 
-```bat
-python suyiyu_prepaid_risk.py ^
-  --analysis-mode gpu ^
-  --date-type 30 ^
-  --output outputs\预充值卡商户跑路风险预警输出.xlsx
+```bash
+python suyiyu_prepaid_risk.py \
+  --analysis-mode gpu \
+  --date-type 30 \
+  --output outputs/预充值卡商户跑路风险预警输出.xlsx
 ```
 
 读取本地文件离线处理：
 
-```bat
-python suyiyu_prepaid_risk.py ^
-  --input input.xlsx ^
-  --analysis-mode cpu ^
-  --output outputs\offline_output.xlsx
+```bash
+python suyiyu_prepaid_risk.py \
+  --input input.xlsx \
+  --analysis-mode cpu \
+  --output outputs/offline_output.xlsx
 ```
 
 ## 项目结构
