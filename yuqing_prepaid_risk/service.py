@@ -28,6 +28,7 @@ from .pipeline import process_rows
 from .utils import log
 
 DEFAULT_DISTRICTS = "梁溪区,锡山区,惠山区,滨湖区,新吴区,江阴市,宜兴市,经开区,无锡"
+GPU_LLM_REQUIRED_MESSAGE = "analysisMode=gpu 模式下需要配置大模型，请查阅文档进行大模型API的相关配置"
 
 
 @dataclass
@@ -142,6 +143,14 @@ def _raw_namespace(options: RawExportOptions) -> Any:
     return _namespace(values)
 
 
+def validate_risk_options(args: Any) -> None:
+    if str(args.analysis_mode).lower() != "gpu" or args.disable_llm:
+        return
+    if args.llm_api_url and args.llm_api_key and args.llm_model:
+        return
+    raise ValueError(GPU_LLM_REQUIRED_MESSAGE)
+
+
 def processed_item_to_dict(item: ProcessedItem) -> Dict[str, Any]:
     row = dict(item.row)
     row.update(
@@ -169,6 +178,7 @@ def run_risk_analysis(
     """Run the full prepaid-risk workflow as an importable service API."""
     opts = RiskAnalysisOptions(**options) if isinstance(options, dict) else (options or RiskAnalysisOptions())
     args = _risk_namespace(opts)
+    validate_risk_options(args)
     districts = _district_list(args.districts)
 
     if args.input:

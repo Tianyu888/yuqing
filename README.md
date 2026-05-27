@@ -39,6 +39,8 @@ https://你的模型网关/v1/chat/completions
 
 如果你的网关把版本号放在其他路径里，也可以是 `https://你的模型网关/chat/completions`。关键是该地址必须能接收 `model`、`messages`，并返回 `choices[0].message.content`。
 
+注意：`analysisMode=gpu` / `--analysis-mode gpu` 会强制要求大模型配置完整。如果请求参数和 `.env` 都没有配置 `LLM_API_URL`、`LLM_API_KEY`、`LLM_MODEL`，接口会返回：`analysisMode=gpu 模式下需要配置大模型，请查阅文档进行大模型API的相关配置`。如果只想使用本地规则，请使用 `cpu` 模式，或显式设置 `disableLlm=true` / `--disable-llm`。
+
 `.env` 已加入 `.gitignore`，不要提交真实密钥。
 
 ## 测试 API 连通性

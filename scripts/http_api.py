@@ -96,6 +96,19 @@ def normalize_options(data: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def normalize_risk_options(data: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = normalize_options(data)
+    aliases = {
+        "model_url": "llm_api_url",
+        "model_key": "llm_api_key",
+        "model_name": "llm_model",
+    }
+    for source, target in aliases.items():
+        if source in normalized and target not in normalized:
+            normalized[target] = normalized.pop(source)
+    return normalized
+
+
 def json_safe(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
@@ -156,7 +169,7 @@ def route_info(request: Request) -> Dict[str, Any]:
 
 def call_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     result = run_risk_analysis(
-        RiskAnalysisOptions(**normalize_options(data)),
+        RiskAnalysisOptions(**normalize_risk_options(data)),
         write_output=bool(data.get("write_output", True)),
         include_items=bool(data.get("include_items", False)),
     )
@@ -220,6 +233,11 @@ def run_job(job_id: str, func: Callable[[Dict[str, Any]], Dict[str, Any]], data:
 @app.exception_handler(Exception)
 async def exception_handler(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=500, content={"ok": False, "error": str(exc)})
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(_: Request, exc: ValueError) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
 
 @app.get("/health", dependencies=[Depends(verify_auth)])
