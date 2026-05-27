@@ -94,7 +94,7 @@ http://127.0.0.1:8765
 
 ## HTTP API 服务
 
-如果要让其他系统通过 `http://ip:port/route` 调用，可以启动 HTTP API 服务：
+如果要让其他系统通过 `http://ip:port/route` 调用，可以启动 FastAPI HTTP API 服务：
 
 ```bat
 python scripts\http_api.py --host 0.0.0.0 --port 8770
@@ -104,6 +104,12 @@ python scripts\http_api.py --host 0.0.0.0 --port 8770
 
 ```text
 http://127.0.0.1:8770/api/routes
+```
+
+Swagger 文档地址：
+
+```text
+http://127.0.0.1:8770/docs
 ```
 
 主要路由：

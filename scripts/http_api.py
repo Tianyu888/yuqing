@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import threading
 import time
 import traceback
 import uuid
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
-from urllib.parse import urlparse
+
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -63,6 +64,26 @@ CAMEL_TO_SNAKE = {
     "includeSuspected": "include_suspected",
 }
 
+app = FastAPI(
+    title="苏移舆情预充值风险 HTTP API",
+    version="1.0.0",
+    description="通过 HTTP 调用舆情风险筛选、原始导出、舆情 API 连通性测试和大模型连通性测试。",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class ApiRequest(BaseModel):
+    options: Dict[str, Any] = Field(default_factory=dict, description="脚本参数，支持 snake_case 和常见 camelCase")
+    write_output: bool = Field(True, description="是否写 Excel")
+    include_items: bool = Field(False, description="风险筛选是否返回明细")
+    include_rows: bool = Field(False, description="原始导出是否返回原始行")
+
 
 def normalize_options(data: Dict[str, Any]) -> Dict[str, Any]:
     options = data.get("options") if isinstance(data.get("options"), dict) else data
@@ -87,37 +108,32 @@ def json_safe(value: Any) -> Any:
     return value
 
 
-def json_response(handler: BaseHTTPRequestHandler, data: Dict[str, Any], status: int = 200) -> None:
-    body = json.dumps(json_safe(data), ensure_ascii=False).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Content-Length", str(len(body)))
-    handler.end_headers()
-    handler.wfile.write(body)
-
-
-def read_json_body(handler: BaseHTTPRequestHandler) -> Dict[str, Any]:
-    length = int(handler.headers.get("Content-Length", "0"))
-    if length <= 0:
+def request_to_dict(payload: Optional[ApiRequest]) -> Dict[str, Any]:
+    if payload is None:
         return {}
-    raw = handler.rfile.read(length).decode("utf-8")
-    data = json.loads(raw)
-    if not isinstance(data, dict):
-        raise ValueError("请求体必须是 JSON object")
-    return data
+    return payload.dict()
 
 
-def check_auth(handler: BaseHTTPRequestHandler) -> bool:
+async def optional_body(request: Request) -> ApiRequest:
+    raw = await request.body()
+    if not raw:
+        return ApiRequest()
+    return ApiRequest.parse_raw(raw)
+
+
+def verify_auth(authorization: str = Header(default="")) -> None:
     if not SERVER_TOKEN:
-        return True
-    expected = f"Bearer {SERVER_TOKEN}"
-    return handler.headers.get("Authorization", "") == expected
+        return
+    if authorization != f"Bearer {SERVER_TOKEN}":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
 
 
-def route_info(host: str, port: int) -> Dict[str, Any]:
-    base = f"http://{host}:{port}"
+def route_info(request: Request) -> Dict[str, Any]:
+    base = str(request.base_url).rstrip("/")
     return {
         "ok": True,
+        "docs": f"{base}/docs",
+        "openapi": f"{base}/openapi.json",
         "routes": {
             "GET /health": f"{base}/health",
             "GET /api/routes": f"{base}/api/routes",
@@ -139,21 +155,20 @@ def route_info(host: str, port: int) -> Dict[str, Any]:
 
 
 def call_risk(data: Dict[str, Any]) -> Dict[str, Any]:
-    include_items = bool(data.get("include_items", False))
-    write_output = bool(data.get("write_output", True))
     result = run_risk_analysis(
         RiskAnalysisOptions(**normalize_options(data)),
-        write_output=write_output,
-        include_items=include_items,
+        write_output=bool(data.get("write_output", True)),
+        include_items=bool(data.get("include_items", False)),
     )
     return {"ok": True, "result": result}
 
 
 def call_raw(data: Dict[str, Any]) -> Dict[str, Any]:
-    include_rows = bool(data.get("include_rows", False))
-    write_output = bool(data.get("write_output", True))
-    result = export_raw_yuqing(RawExportOptions(**normalize_options(data)), write_output=write_output)
-    if not include_rows:
+    result = export_raw_yuqing(
+        RawExportOptions(**normalize_options(data)),
+        write_output=bool(data.get("write_output", True)),
+    )
+    if not data.get("include_rows", False):
         result.pop("rows", None)
     return {"ok": True, "result": result}
 
@@ -181,8 +196,6 @@ def create_job(kind: str, func: Callable[[Dict[str, Any]], Dict[str, Any]], data
             "result": None,
             "error": "",
         }
-    thread = threading.Thread(target=run_job, args=(job_id, func, data), daemon=True)
-    thread.start()
     return {"ok": True, "job_id": job_id, "status_url": f"/api/jobs/{job_id}"}
 
 
@@ -204,76 +217,64 @@ def run_job(job_id: str, func: Callable[[Dict[str, Any]], Dict[str, Any]], data:
             JOBS[job_id]["traceback"] = traceback.format_exc(limit=6)
 
 
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format: str, *args: Any) -> None:
-        return
+@app.exception_handler(Exception)
+async def exception_handler(_: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(status_code=500, content={"ok": False, "error": str(exc)})
 
-    def do_OPTIONS(self) -> None:
-        self.send_response(HTTPStatus.NO_CONTENT)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.end_headers()
 
-    def end_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
-        super().end_headers()
+@app.get("/health", dependencies=[Depends(verify_auth)])
+def health() -> Dict[str, Any]:
+    return {"ok": True, "status": "healthy"}
 
-    def do_GET(self) -> None:
-        if not check_auth(self):
-            json_response(self, {"ok": False, "error": "unauthorized"}, 401)
-            return
-        parsed = urlparse(self.path)
-        if parsed.path == "/health":
-            json_response(self, {"ok": True, "status": "healthy"})
-            return
-        if parsed.path == "/api/routes":
-            host, port = self.server.server_address[:2]
-            json_response(self, route_info(str(host), int(port)))
-            return
-        if parsed.path.startswith("/api/jobs/"):
-            job_id = parsed.path.rsplit("/", 1)[-1]
-            with JOBS_LOCK:
-                job = JOBS.get(job_id)
-                if not job:
-                    json_response(self, {"ok": False, "error": "job not found"}, 404)
-                    return
-                json_response(self, {"ok": True, "job": job})
-            return
-        json_response(self, {"ok": False, "error": "not found"}, 404)
 
-    def do_POST(self) -> None:
-        if not check_auth(self):
-            json_response(self, {"ok": False, "error": "unauthorized"}, 401)
-            return
-        parsed = urlparse(self.path)
-        try:
-            data = read_json_body(self)
-            if parsed.path == "/api/risk-analysis":
-                json_response(self, call_risk(data))
-                return
-            if parsed.path == "/api/raw-export":
-                json_response(self, call_raw(data))
-                return
-            if parsed.path == "/api/test-yuqing":
-                json_response(self, call_yuqing_test(data))
-                return
-            if parsed.path == "/api/test-llm":
-                json_response(self, call_llm_test(data))
-                return
-            if parsed.path == "/api/jobs/risk-analysis":
-                json_response(self, create_job("risk-analysis", call_risk, data), 202)
-                return
-            if parsed.path == "/api/jobs/raw-export":
-                json_response(self, create_job("raw-export", call_raw, data), 202)
-                return
-        except TypeError as exc:
-            json_response(self, {"ok": False, "error": f"参数错误: {exc}"}, 400)
-            return
-        except Exception as exc:
-            json_response(self, {"ok": False, "error": str(exc)}, 500)
-            return
-        json_response(self, {"ok": False, "error": "not found"}, 404)
+@app.get("/api/routes", dependencies=[Depends(verify_auth)])
+def routes(request: Request) -> Dict[str, Any]:
+    return route_info(request)
+
+
+@app.post("/api/risk-analysis", dependencies=[Depends(verify_auth)])
+def risk_analysis(payload: ApiRequest) -> Dict[str, Any]:
+    return json_safe(call_risk(request_to_dict(payload)))
+
+
+@app.post("/api/raw-export", dependencies=[Depends(verify_auth)])
+def raw_export(payload: ApiRequest) -> Dict[str, Any]:
+    return json_safe(call_raw(request_to_dict(payload)))
+
+
+@app.post("/api/test-yuqing", dependencies=[Depends(verify_auth)])
+def yuqing_api_test(payload: ApiRequest = Depends(optional_body)) -> Dict[str, Any]:
+    return json_safe(call_yuqing_test(request_to_dict(payload)))
+
+
+@app.post("/api/test-llm", dependencies=[Depends(verify_auth)])
+def llm_api_test(payload: ApiRequest = Depends(optional_body)) -> Dict[str, Any]:
+    return json_safe(call_llm_test(request_to_dict(payload)))
+
+
+@app.post("/api/jobs/risk-analysis", status_code=202, dependencies=[Depends(verify_auth)])
+def create_risk_job(payload: ApiRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
+    data = request_to_dict(payload)
+    response = create_job("risk-analysis", call_risk, data)
+    background_tasks.add_task(run_job, response["job_id"], call_risk, data)
+    return response
+
+
+@app.post("/api/jobs/raw-export", status_code=202, dependencies=[Depends(verify_auth)])
+def create_raw_job(payload: ApiRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
+    data = request_to_dict(payload)
+    response = create_job("raw-export", call_raw, data)
+    background_tasks.add_task(run_job, response["job_id"], call_raw, data)
+    return response
+
+
+@app.get("/api/jobs/{job_id}", dependencies=[Depends(verify_auth)])
+def get_job(job_id: str) -> Dict[str, Any]:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="job not found")
+        return {"ok": True, "job": json_safe(job)}
 
 
 def main() -> int:
@@ -284,13 +285,13 @@ def main() -> int:
     parser.add_argument("--token", default="", help="可选 Bearer Token；设置后请求需带 Authorization: Bearer <token>")
     args = parser.parse_args()
     SERVER_TOKEN = args.token
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+
+    import uvicorn
+
     print(f"HTTP API 已启动: http://{args.host}:{args.port}")
+    print(f"Swagger 文档: http://{args.host}:{args.port}/docs")
     print("路由说明: GET /api/routes")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("HTTP API 已停止")
+    uvicorn.run(app, host=args.host, port=args.port)
     return 0
 
 
