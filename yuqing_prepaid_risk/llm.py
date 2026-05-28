@@ -10,7 +10,7 @@ import requests
 from .config import BUSINESS_WORDS, EXPIRED_WORDS, PREPAID_WORDS, RUMOR_WORDS, RUNAWAY_WORDS
 from .models import ProcessedItem
 from .rules import build_summary
-from .utils import compact_text, contains_any, log
+from .utils import compact_text, contains_any, has_irrelevant_crime_context, has_unrelated_risk_negation, log
 
 def extract_json_object(text: str) -> Dict[str, Any]:
     cleaned = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.I | re.M).strip()
@@ -20,13 +20,22 @@ def extract_json_object(text: str) -> Dict[str, Any]:
     return json.loads(match.group(0))
 
 
-def call_risk_model(row: Dict[str, Any], args: argparse.Namespace) -> Optional[Dict[str, Any]]:
+def call_risk_model(row: Dict[str, Any], args: argparse.Namespace, target_city: str = "") -> Optional[Dict[str, Any]]:
     if args.disable_llm or not args.llm_api_key or not args.llm_api_url or not args.llm_model:
         return None
 
     content = compact_text(row.get("content"), args.llm_content_chars)
+    location_requirement = ""
+    if target_city:
+        location_requirement = f"""
+
+重要：本预警系统仅关注「{target_city}」地区的舆情。请先判断舆情是否与{target_city}相关：
+- 如果舆情内容明确涉及{target_city}或其辖区，则正常判定风险等级。
+- 如果舆情内容与{target_city}无关（涉及其他城市、全国性泛泛而谈、无具体城市信息），请将keep设为false，risk_summary说明过滤原因。
+- 无法确认是否涉及{target_city}时，也请将keep设为false。"""
+
     prompt = f"""
-你是城运中心预充值卡商户跑路风险预警审核员。请只根据输入舆情判断是否属于预充值消费领域的商户跑路/闭店/失联/拒不退款风险。
+你是城运中心预充值卡商户跑路风险预警审核员。请只根据输入舆情判断是否属于预充值消费领域的商户跑路/闭店/失联/拒不退款风险。{location_requirement}
 
 判定等级只能使用以下五类之一：
 1. 一级真实高风险负面：明确提及门店/商户 + 预充值/办卡/会员卡/课包/储值 + 关门停业/失联/跑路/拒不退款等事实，建议重点预警。
@@ -85,7 +94,7 @@ def call_dedup_model(items: Sequence[ProcessedItem], args: argparse.Namespace) -
     records = []
     for item in items:
         row = item.row
-        content = compact_text(row.get("content"), min(args.llm_content_chars, 1800))
+        content = compact_text(row.get("content"), min(args.llm_content_chars, 700))
         records.append(
             {
                 "id": row.get("id", ""),
@@ -165,17 +174,42 @@ def should_use_llm(
     has_expired = contains_any(text, EXPIRED_WORDS)
 
     # gpu 模式：CPU 规则优先，只把可能影响预警清单质量的记录交给模型复核。
+    if has_unrelated_risk_negation(text):
+        return False
+    if has_irrelevant_crime_context(text):
+        return False
     if keep:
         return True
     if risk_level in {"一级真实高风险负面", "五级不实传言"}:
         return True
     if filter_reason in {"地域过滤去重", "URL精准去重", "全文精准去重", "同门店同事件归并", "相似文案模糊去重"}:
         return False
+    # 地域待定：CPU无法确认是否目标城市，交给LLM判断
+    if filter_reason == "地域待定":
+        return True
     if has_prepaid and has_runaway:
         return True
     if has_runaway and has_business and (has_rumor or has_expired):
         return True
     return False
+
+
+def normalize_model_keep(
+    keep: bool,
+    risk_level: str,
+    risk_label: str,
+    summary: str,
+    reason: str,
+) -> Tuple[bool, str]:
+    judgement_text = f"{risk_level} {risk_label} {summary} {reason}"
+    normalized_level = re.sub(r"\s+", "", risk_level)
+    if normalized_level in {"二级普通消费", "三级无效水帖/吐槽", "三级无效水帖", "四级过期旧闻"}:
+        return False, "时效过滤剔除" if normalized_level == "四级过期旧闻" else "直接过滤剔除"
+    if risk_label in {"直接过滤剔除", "时效过滤剔除"}:
+        return False, risk_label
+    if has_unrelated_risk_negation(judgement_text):
+        return False, "与预充值商户跑路风险无关"
+    return keep, ""
 
 
 def apply_model_judgement(
@@ -188,7 +222,7 @@ def apply_model_judgement(
     risk_level, risk_label, keep, filter_reason = fallback
     try:
         log(f"调用大模型: id={row.get('id', '')}, title={compact_text(row.get('title'), 60)}")
-        model_result = call_risk_model(row, args)
+        model_result = call_risk_model(row, args, target_city)
     except Exception as exc:
         summary = build_summary(row, risk_level, target_city, districts)
         log(f"大模型返回失败: id={row.get('id', '')}, error={exc}")
@@ -200,12 +234,14 @@ def apply_model_judgement(
 
     risk_level = str(model_result.get("risk_level") or risk_level)
     risk_label = str(model_result.get("risk_label") or risk_label)
-    keep = bool(model_result.get("keep"))
+    raw_keep = model_result.get("keep")
+    keep = raw_keep if isinstance(raw_keep, bool) else str(raw_keep).lower() in {"true", "1", "yes", "是"}
     summary = compact_text(model_result.get("risk_summary") or build_summary(row, risk_level, target_city, districts), 500)
     reason = compact_text(model_result.get("reason"), 300)
+    keep, normalized_filter_reason = normalize_model_keep(keep, risk_level, risk_label, summary, reason)
     if not keep:
-        filter_reason = risk_label or risk_level
-    log(f"大模型返回完成: id={row.get('id', '')}, risk_level={risk_level}, keep={keep}")
+        filter_reason = normalized_filter_reason or risk_label or risk_level
+    log(f"大模型返回完成: id={row.get('id', '')}, risk_level={risk_level}, raw_keep={raw_keep}, final_keep={keep}")
     return risk_level, risk_label, keep, filter_reason, summary, reason
 
 

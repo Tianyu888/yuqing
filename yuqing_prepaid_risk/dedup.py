@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import re
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -15,6 +16,14 @@ from .utils import compact_text, norm_text, log
 
 CPU_DEDUP_REASONS = {"URL精准去重", "全文精准去重", "同门店同事件归并"}
 FINAL_DEDUP_REASONS = {"最终URL精准去重", "最终全文精准去重", "最终同门店同事件归并"}
+CANONICAL_SUBJECTS = [
+    ("无锡荟聚fun服装店", ["无锡荟聚fun服装店", "荟聚fun服装店", "荟聚 fun服装店"]),
+    ("海狸家口腔", ["海狸家口腔", "海狸家", "知名口腔机构"]),
+    ("爱家月子中心", ["爱家月子中心", "江苏爱之家", "爱之家月子中心"]),
+    ("爱容御美容美发", ["爱容御", "容御鑫美容美发", "爱容御保利店"]),
+    ("中体星荟教培", ["中体星荟", "中体威博"]),
+    ("无锡五八悦家", ["无锡五八悦家", "58旺铺", "58同城商家版", "五八悦家"]),
+]
 
 
 def is_cpu_dedup_reason(reason: str) -> bool:
@@ -32,8 +41,30 @@ def content_signature(row: Dict[str, Any]) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
 
+def canonical_subject(text: str) -> str:
+    normalized = norm_text(text)
+    for subject, aliases in CANONICAL_SUBJECTS:
+        if any(norm_text(alias) in normalized for alias in aliases):
+            return subject
+    patterns = [
+        r"涉事主体[为：:]\s*([^，；。;]+)",
+        r"涉事商户[为：:]\s*([^，；。;]+)",
+        r"投诉对象[为：:]\s*([^，；。;]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            subject = re.sub(r"[（(].*?[）)]", "", match.group(1)).strip()
+            if 3 <= len(subject) <= 30:
+                return subject
+    return ""
+
+
 def event_key(row: Dict[str, Any]) -> str:
     text = f"{row.get('title','')} {row.get('content','')}"
+    subject = norm_text(canonical_subject(text))
+    if subject:
+        return f"subject:{subject}:{extract_event(text)}"
     store = norm_text(extract_store(text))
     loc = norm_text(extract_location(text, "", []))
     event = extract_event(text)
@@ -138,12 +169,15 @@ def dedup_candidate_keys(item: ProcessedItem) -> List[str]:
     row = item.row
     title_key = norm_text(row.get("title", ""))
     text = f"{row.get('title','')} {row.get('content','')} {item.risk_summary}"
+    subject_key = norm_text(canonical_subject(text))
     store_key = norm_text(extract_store(text))
     entity_keys = extract_dedup_entities(text)
     topic_keys = extract_dedup_topics(text)
     keys = []
     if len(title_key) >= 8:
         keys.append(f"title:{title_key}")
+    if len(subject_key) >= 4:
+        keys.append(f"subject:{subject_key}")
     if len(store_key) >= 4:
         keys.append(f"store:{store_key}")
     for entity in entity_keys:
@@ -219,39 +253,55 @@ def apply_llm_dedup(results: List[ProcessedItem], args: argparse.Namespace) -> L
         for key in dedup_candidate_keys(item):
             groups[key].append(index)
 
-    candidate_groups: List[List[int]] = []
-    seen_group_keys = set()
+    keeper_candidates: Dict[int, set[int]] = defaultdict(set)
     for indices in groups.values():
         unique_indices = sorted(set(indices))
         if len(unique_indices) < 2:
             continue
         keeper_index = unique_indices[0]
-        for start in range(1, len(unique_indices), 7):
-            batch = [keeper_index, *unique_indices[start : start + 7]]
-            group_key = tuple(batch)
-            if group_key in seen_group_keys:
-                continue
-            seen_group_keys.add(group_key)
-            candidate_groups.append(batch)
+        keeper_candidates[keeper_index].update(unique_indices[1:])
+
+    candidate_groups: List[List[int]] = []
+    for keeper_index in sorted(keeper_candidates):
+        candidates = sorted(keeper_candidates[keeper_index])
+        for start in range(0, len(candidates), 7):
+            candidate_groups.append([keeper_index, *candidates[start : start + 7]])
 
     if not candidate_groups:
         return results
 
-    log(f"大模型辅助去重任务准备完成: groups={len(candidate_groups)}")
+    workers = max(1, int(getattr(args, "llm_workers", 1) or 1))
+    log(f"大模型辅助去重任务准备完成: groups={len(candidate_groups)}, workers={workers}")
     final_results = list(results)
     removed_ids = set()
 
-    for group_indices in candidate_groups:
+    def review_group(group_indices: List[int]) -> Tuple[List[int], Dict[str, Any] | None, str]:
+        group_items = [results[i] for i in group_indices]
+        keeper_id = str(group_items[0].row.get("id", ""))
+        try:
+            return group_indices, call_dedup_model(group_items, args), ""
+        except Exception as exc:
+            return group_indices, None, str(exc)
+
+    reviewed_groups: List[Tuple[List[int], Dict[str, Any] | None, str]] = []
+    if workers == 1 or len(candidate_groups) == 1:
+        reviewed_groups = [review_group(group_indices) for group_indices in candidate_groups]
+    else:
+        group_order = {id(group_indices): order for order, group_indices in enumerate(candidate_groups)}
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_map = {executor.submit(review_group, group_indices): group_indices for group_indices in candidate_groups}
+            for future in as_completed(future_map):
+                reviewed_groups.append(future.result())
+        reviewed_groups.sort(key=lambda x: group_order.get(id(x[0]), 0))
+
+    for group_indices, model_result, error in reviewed_groups:
         live_indices = [i for i in group_indices if final_results[i].keep and str(final_results[i].row.get("id", "")) not in removed_ids]
         if len(live_indices) < 2:
             continue
-        group_items = [final_results[i] for i in live_indices]
-        keeper = group_items[0]
+        keeper = final_results[live_indices[0]]
         keeper_id = str(keeper.row.get("id", ""))
-        try:
-            model_result = call_dedup_model(group_items, args)
-        except Exception as exc:
-            log(f"大模型辅助去重失败: keeper_id={keeper_id}, error={exc}")
+        if error or not model_result:
+            log(f"大模型辅助去重失败: keeper_id={keeper_id}, error={error}")
             continue
 
         duplicate_ids = set(model_result.get("duplicate_ids") or set())

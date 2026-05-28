@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Any, Sequence
 
-from .config import BUSINESS_WORDS, PREPAID_WORDS, RUNAWAY_WORDS
+from .config import BUSINESS_WORDS, IRRELEVANT_CRIME_WORDS, IRRELEVANT_NEGATION_PHRASES, PREPAID_WORDS, RUNAWAY_WORDS
 
 def log(message: str) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -44,3 +44,34 @@ def has_scene_context(text: str) -> bool:
         if has_prepaid and has_runaway and (has_business or has_complaint):
             return True
     return False
+
+
+def has_irrelevant_crime_context(text: str) -> bool:
+    has_crime = contains_any(text, IRRELEVANT_CRIME_WORDS)
+    if not has_crime:
+        return False
+    if contains_any(text, IRRELEVANT_NEGATION_PHRASES):
+        return True
+    has_consumer_scene = contains_any(text, ["投诉", "消费保", "黑猫", "维权", "退款", "退费", "会员卡", "储值卡", "课包"])
+    return not has_consumer_scene
+
+
+def has_unrelated_risk_negation(text: str) -> bool:
+    negated = contains_any(
+        text,
+        [
+            "无关",
+            "不属于",
+            "非预充值",
+            "不是预充值",
+            "不涉及商户跑路",
+            "未明确预充值卡风险",
+            "无具体商户跑路",
+            "无闭店失联",
+            "无拒不退款",
+        ],
+    )
+    if not negated:
+        return False
+    risk_domain = contains_any(text, ["预充值", "预付消费", "商户跑路", "闭店", "失联", "拒不退款"])
+    return risk_domain
