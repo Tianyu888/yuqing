@@ -41,7 +41,7 @@ PARAM_HELP: Dict[str, str] = {
     "llmTimeout": "大模型单次请求超时时间，单位秒。",
     "llmContentChars": "送入大模型的正文最大字符数。",
     "disableLlm": "强制关闭大模型，即使选择 gpu 模式也只按本地规则执行。",
-    "modelUrl": "OpenAI-compatible Chat Completions 完整接口地址，例如 https://网关/v1/chat/completions。",
+    "modelUrl": "OpenAI-compatible 模型网关地址，例如 https://网关/v1；脚本会自动补齐 /chat/completions。",
     "modelKey": "大模型 API Key。留空则使用 .env 中的 LLM_API_KEY。",
     "modelName": "模型名称。留空则使用 .env 中的 LLM_MODEL。",
     "targetCity": "风险筛选目标城市，默认无锡市。",

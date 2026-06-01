@@ -23,6 +23,7 @@ from .config import (
 )
 from .env import load_env_file
 from .io_utils import read_local, write_xlsx
+from .llm import normalize_chat_completions_url
 from .models import ProcessedItem
 from .pipeline import process_rows
 from .utils import log
@@ -344,8 +345,9 @@ def test_llm_api(options: Optional[LlmApiTestOptions | Dict[str, Any]] = None) -
 
     payload = {"model": model_name, "messages": [{"role": "user", "content": "请只回复 OK"}]}
     headers = {"Authorization": f"Bearer {model_key}", "Content-Type": "application/json"}
-    response = requests.post(model_url, json=payload, headers=headers, timeout=opts.timeout)
+    request_url = normalize_chat_completions_url(model_url)
+    response = requests.post(request_url, json=payload, headers=headers, timeout=opts.timeout)
     response.raise_for_status()
     data = response.json()
     content = data["choices"][0]["message"]["content"]
-    return {"ok": True, "content": content, "payload": data}
+    return {"ok": True, "content": content, "request_url": request_url, "payload": data}

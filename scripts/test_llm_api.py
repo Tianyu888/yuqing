@@ -50,6 +50,7 @@ def main() -> int:
         return 1
 
     print("大模型 API 测试通过。")
+    print(f"实际请求地址: {result['request_url']}")
     print(f"模型返回: {result['content']}")
     answer = input("是否将本次 LLM_API_URL/LLM_API_KEY/LLM_MODEL 写入 .env？[y/N]: ").strip().lower()
     if answer in {"y", "yes", "是"}:

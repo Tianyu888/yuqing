@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 from typing import Any, Dict, Optional, Sequence, Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -11,6 +12,25 @@ from .config import BUSINESS_WORDS, EXPIRED_WORDS, PREPAID_WORDS, RUMOR_WORDS, R
 from .models import ProcessedItem
 from .rules import build_summary
 from .utils import compact_text, contains_any, has_irrelevant_crime_context, has_unrelated_risk_negation, log
+
+
+def normalize_chat_completions_url(model_url: str) -> str:
+    """Accept a gateway base URL and return its chat completions endpoint."""
+    url = str(model_url or "").strip()
+    if not url:
+        return ""
+
+    parts = urlsplit(url)
+    path = parts.path.rstrip("/")
+    normalized_path = path.lower()
+    if normalized_path.endswith("/chat/completions"):
+        return urlunsplit(parts._replace(path=path))
+    if normalized_path.endswith("/v1"):
+        return urlunsplit(parts._replace(path=f"{path}/chat/completions"))
+    if not path:
+        return urlunsplit(parts._replace(path="/v1/chat/completions"))
+    return urlunsplit(parts._replace(path=f"{path}/chat/completions"))
+
 
 def extract_json_object(text: str) -> Dict[str, Any]:
     cleaned = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.I | re.M).strip()
@@ -70,7 +90,7 @@ IP归属地：{row.get("iplocation", "")}
         "Authorization": f"Bearer {args.llm_api_key}",
         "Content-Type": "application/json",
     }
-    response = requests.post(args.llm_api_url, json=payload, headers=headers, timeout=args.llm_timeout)
+    response = requests.post(normalize_chat_completions_url(args.llm_api_url), json=payload, headers=headers, timeout=args.llm_timeout)
     response.raise_for_status()
     payload = response.json()
     content = payload["choices"][0]["message"]["content"]
@@ -144,7 +164,7 @@ def call_dedup_model(items: Sequence[ProcessedItem], args: argparse.Namespace) -
         "Authorization": f"Bearer {args.llm_api_key}",
         "Content-Type": "application/json",
     }
-    response = requests.post(args.llm_api_url, json=payload, headers=headers, timeout=args.llm_timeout)
+    response = requests.post(normalize_chat_completions_url(args.llm_api_url), json=payload, headers=headers, timeout=args.llm_timeout)
     response.raise_for_status()
     payload = response.json()
     content = payload["choices"][0]["message"]["content"]
